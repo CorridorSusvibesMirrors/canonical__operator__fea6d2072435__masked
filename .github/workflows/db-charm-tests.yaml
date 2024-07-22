@@ -1,0 +1,54 @@
+name: Data Charm Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+jobs:
+  db-charm-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - charm-repo: canonical/postgresql-operator
+            commit: 8c47bae588ba2c77c95a33f613a6d2ebe82197a9  # 2024-06-05T11:40:02Z
+          - charm-repo: canonical/postgresql-k8s-operator
+            commit: 04c217e70b2e41d5a68fdc604404edc3dcb0d5b7  # rev274 2024-06-07T22:08:29Z
+          - charm-repo: canonical/mysql-operator
+            commit: 14c06ff88c4e564cd6d098aa213bd03e78e84b52  # rev237 2024-06-08T20:53:52Z
+          - charm-repo: canonical/mysql-k8s-operator
+            commit: 59ccbb42ce4cf5acb381c08c8fbc125b7740cb6f  # rev145 2024-06-07T19:58:49Z
+    steps:
+      - name: Checkout the ${{ matrix.charm-repo }} repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.charm-repo }}
+          ref: ${{ matrix.commit }}
+
+      - name: Checkout the operator repository
+        uses: actions/checkout@v4
+        with:
+          path: myops
+
+      - name: Install patch dependencies
+        run: pip install poetry~=1.6
+
+      - name: Update 'ops' dependency in test charm to latest
+        run: |
+          if [ -e "requirements.txt" ]; then
+            sed -i -e "/^ops[ ><=]/d" -e "/canonical\/operator/d" -e "/#egg=ops/d" requirements.txt
+            echo -e "\ngit+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@$GITHUB_SHA#egg=ops" >> requirements.txt
+          else
+            sed -i -e "s/^ops[ ><=].*/ops = {path = \"myops\"}/" pyproject.toml
+            poetry lock --no-update
+          fi
+
+      - name: Install dependencies
+        run: pip install tox~=4.2
+
+      - name: Run the charm's unit tests
+        run: tox -vve unit
